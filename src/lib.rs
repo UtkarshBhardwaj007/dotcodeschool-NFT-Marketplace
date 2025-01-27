@@ -1,7 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 mod impls;
-mod tests;
 
 use frame::prelude::*;
 pub use pallet::*;
@@ -18,6 +17,9 @@ pub mod pallet {
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 	}
 
+	#[pallet::storage]
+	pub(super) type CountForKitties<T: Config> = StorageValue<Value = u32>;
+
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
@@ -25,7 +27,9 @@ pub mod pallet {
 	}
 
 	#[pallet::error]
-	pub enum Error<T> {}
+	pub enum Error<T> {
+		TooManyKitties,
+	}
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {

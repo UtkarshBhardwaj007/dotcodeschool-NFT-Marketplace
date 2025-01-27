@@ -144,3 +144,52 @@ frame_system::Config::RuntimeEvent        // System-level event
     ↓
 Stored in block's event log
 ```
+
+### 5.5 Storage (`#[pallet::storage]`)
+
+#### 5.5.1 Storage Values
+* The most basic storage type for a blockchain is a single `StorageValue`. A `StorageValue` is used to place a single object into the blockchain storage. A single object can be as simple as a single type like a `u32`, or more complex structures, or even vectors.
+* `StorageValue` places a single entry into the merkle trie. So when you read data, you read all of it. When you write data, you write all of it. This is in contrast to a `StorageMap`.
+* Here is how it is created in `FRAME`:
+
+```rust
+    #[pallet::storage]
+    pub(super) type CountForKitties<T: Config> = StorageValue<Value = u32>;
+```
+
+* Our storage (`CountForKitties`) is a type alias for a new instance of `StorageValue`.
+* `StorageValue` has a parameter `Value` where we can define the type we want to place in storage. In this case, it is a simple `u32`.
+* Also notice `CountForKitties` is generic over `<T: Config>`. **All of our storage must be generic** over `<T: Config>` even if we are not using it directly. **Macros** use this generic parameter to fill in behind the scene details to make the `StorageValue` work.
+* Visibility of the type is up to you and your needs, but you need to remember that blockchains are public databases. So `pub` in this case is only about Rust, and allowing other modules to access this storage and its APIs directly. You cannot make storage on a blockchain "private", and even if you make this storage without `pub`, there are low level ways to manipulate the storage in the database.
+
+### 5.6 Pallet Errors (`#[pallet::error]`)
+* **NOTE**: You cannot panic inside the runtime.
+* All of our callable functions use the `DispatchResult` type. The `DispatchResult` type expects either `Ok(())` or `Err(DispatchError)`.
+
+```rust
+    // The `DispatchError` type has a few variants that you can easily construct / use.
+    // For example, if you want to be a little lazy, you can simply return a `&'static str`:
+    fn always_error() -> DispatchResult {
+        return Err("this function always errors".into())
+    }
+
+    // But the better option is to return a custom Pallet Error:
+    fn custom_error() -> DispatchResult {
+        return Err(Error::<T>::CustomPalletError.into())
+    }
+
+    // Notice in both of these cases we had to call into() to convert our input type 
+    // into the DispatchError type.
+```
+
+* To create `CustomPalletError`, simply add a new variants to the `enum Error<T>` type.
+
+```rust
+    #[pallet::error]
+    pub enum Error<T> {
+        /// This is a description for the error.
+        ///
+        /// This description can be shown to the user in UIs, so make it descriptive.
+        CustomPalletError,
+    }
+```
