@@ -161,6 +161,33 @@ Stored in block's event log
 * `StorageValue` has a parameter `Value` where we can define the type we want to place in storage. In this case, it is a simple `u32`.
 * Also notice `CountForKitties` is generic over `<T: Config>`. **All of our storage must be generic** over `<T: Config>` even if we are not using it directly. **Macros** use this generic parameter to fill in behind the scene details to make the `StorageValue` work.
 * Visibility of the type is up to you and your needs, but you need to remember that blockchains are public databases. So `pub` in this case is only about Rust, and allowing other modules to access this storage and its APIs directly. You cannot make storage on a blockchain "private", and even if you make this storage without `pub`, there are low level ways to manipulate the storage in the database.
+* `StorageValue` has a `QueryKind` parameter which defaults to `OptionQuery`. We can change this to `ValueQuery` to return the default values in case the value is not found to get rid of the `unwrap_or()` in the `get()` calls. If your type does not implement `Default`, you can't use `ValueQuery`. A common example of this is the `T::AccountId` type, which purposefully has no default value, and thus is not compatible out of the box with `ValueQuery`.
+* `OnEmpty` type defines the behavior of the `QueryKind` type. When you call get, and the storage is empty, the `OnEmpty` configuration kicks in.You **CAN** modify `OnEmpty` to return a custom value, rather than Default.
+
+#### 5.5.2 Storage Maps
+* A `StorageMap` is a key-value store. Declaring a new StorageMap is very similar to a StorageValue:
+
+```rust
+    #[pallet::storage]
+    pub(super) type Kitties<T: Config> = StorageMap<Key = [u8; 32], Value = ()>;
+```
+
+* A `StorageValue` stores a single value into a single key in the Merkle Trie. A `StorageMap` stores multiple values under different storage keys, all into different places in the Merkle Trie.
+* `StorageValue` puts all of the data into a single object and stores that all into a single key in the Merkle Trie. In `StorageMap`, each value is stored in its own spot in the Merkle Trie, so you are able to read just one key / value on its own. This can be way more efficient for reading just a single item. However, trying to read multiple items from a `StorageMap` is extremely expensive.
+* **Ensure**: `ensure!` is a macro which expands to the following:
+
+```rust
+    ensure!(!Kitties::<T>::contains_key(my_key), Error::<T>::DuplicateKitty);
+    //              |   |
+    //              |   |  This gets expanded to the following:
+    //              V   V
+    if (Kitties::<T>::contains_key(my_key)) {
+        return Err(Error::<T>::DuplicateKitty.into());
+    }
+```
+
+* **NOTE**: In both `StorageValue` and `StorageMap`, the `insert` API cannot fail. If you try to insert a value into a key that already exists, it will overwrite the existing value.
+* **NOTE**: To check if a value exists, you can use the `exists` API for `StorageValue` and `contains_key` for `StorageMap`.
 
 ### 5.6 Pallet Errors (`#[pallet::error]`)
 * **NOTE**: You cannot panic inside the runtime.
