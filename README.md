@@ -1,5 +1,3 @@
-This repository contains my solution to DotCodeSchool's Substrate Collectables Workshop.
-
 ## 1. Goal
 * The goal is to create a custom Polkadot SDK Pallet that acts as an NFT Marketplace. Our NFTs will represent kitties, which will be a digital pets that can be created, traded, and more.
 * This Pallet could then be included into a Polkadot SDK blockchain and used to launch a Web3 application on the Polkadot Network.
@@ -189,6 +187,39 @@ Stored in block's event log
 * **NOTE**: In both `StorageValue` and `StorageMap`, the `insert` API cannot fail. If you try to insert a value into a key that already exists, it will overwrite the existing value.
 * **NOTE**: To check if a value exists, you can use the `exists` API for `StorageValue` and `contains_key` for `StorageMap`.
 
+#### 5.5.3 Traits Required for Storage
+* When storing a custom struct in runtime storage like the `Kitty` struct, you need to implement the following traits on the struct:
+  * `Encode`: The object must be encodable to bytes using `parity_scale_codec`.
+  * `Decode`: The object must be decodable from bytes using `parity_scale_codec`.
+  * `MaxEncodedLen`: When the object is encoded, it must have an upper limit to its size.
+  * `TypeInfo`: The object must be able to generate metadata describing the object.
+* We can use the `#[derive(...)]` macros to generate the implementation of these traits.
+
+#### 5.5.4 Parity Scale Codec (`parity_scale_codec`)
+`SCALE` defines how every object in the `polkadot-sdk` is represented in bytes. SCALE is:
+* Simple to define.
+* Not Rust-specific (but happens to work great in Rust).
+  * Easy to derive codec logic: `#[derive(Encode, Decode)]`
+  * Viable and useful for APIs like: `MaxEncodedLen` and `TypeInfo`
+  * It does not use `Rust std`, and thus can compile to `Wasm no_std`.
+* Consensus critical / bijective; one value will always encode to one blob and that blob will only decode to that value.
+* Supports a copy-free decode for basic types on LE architectures (like Wasm).
+* It is about as thin and lightweight as can be.
+
+#### 5.5.5 Max Encoded Length (`MaxEncodedLen`)
+* We track the maximum encoded length of an object: `MaxEncodedLen` and use that information to predict in the worst case scenario how much data will be used when we store it.
+* For a `u8`, the `max_encoded_len()` is always: `1 byte`. For a `u64`, it is always: `8 bytes`. For a basic `enum`, it is also just `1 byte`, since an enum can represent up to 256 variants.
+* For a `struct`, the `max_encoded_len()` will be the **sum** of the `max_encoded_len()` of all items in the struct.
+
+#### 5.5.6 Type Info (`TypeInfo`)
+* `TypeInfo` is a trait that is used to generate metadata about a type.
+* This trait is key for off-chain interactions with your blockchain. It is used to generate metadata for all the objects and types in your blockchain. Metadata exposes all the details of your blockchain to the outside world, allowing us to dynamically construct APIs to interact with the blockchain.
+* **Skip Type Params**: `TypeInfo` derive macro isn't very "smart". `TypeInfo` generates relevant metadata about the types used in your blockchain. However, part of our `Kitty` type is the generic parameter `T`, and it really does not make any sense to generate `TypeInfo` for `T`. To make `TypeInfo` work while we have `T`, we need to include the additional line:
+
+```rust
+    #[scale_info(skip_type_params(T))]
+```
+
 ### 5.6 Pallet Errors (`#[pallet::error]`)
 * **NOTE**: You cannot panic inside the runtime.
 * All of our callable functions use the `DispatchResult` type. The `DispatchResult` type expects either `Ok(())` or `Err(DispatchError)`.
@@ -220,3 +251,81 @@ Stored in block's event log
         CustomPalletError,
     }
 ```
+
+## 6. Generating Unique DNAs for Kitties
+
+### 6.1 Randomness
+Generating randomness on a blockchain is extremely difficult because any kind of randomness function must generate exactly the same randomness for all nodes. **NOTE** that Polkadot does provide access to a verifiable random function (VRF).
+
+### 6.2 Uniqueness
+There are different levels of uniqueness we can achieve using data from our blockchain.
+* `frame_system::Pallet::<T>::parent_hash()`: The hash of the previous block. This will ensure uniqueness for every fork of the blockchain.
+* `frame_system::Pallet::<T>::block_number()`: The number of the current block. This will obviously be unique for each block.
+* `frame_system::Pallet::<T>::extrinsic_index()`: The number of the extrinsic in the block that is being executed. This will be unique for each extrinsic in a block.
+* `CountForKitties::<T>::get()`: The number of kitties in our blockchain.
+
+### 6.3 Hash
+* `FRAME` provides access to the hash function: `frame::primitives::BlakeTwo256`
+
+```rust
+    // Collect our unique inputs into a single object.
+    let unique_payload = (item1, item2, item3);
+    // To use the `hash_of` API, we need to bring the `Hash` trait into scope.
+    use frame::traits::Hash;
+    // Hash that object to get a unique identifier.
+    let hash: [u8; 32] = BlakeTwo256::hash_of(&unique_payload).into();
+```
+
+* The `hash_of` API comes from the `Hash` trait and takes any `encode`-able object, and returns a `H256`, which is a 256-bit hash. As you can see in the code above, it is easy to convert that to a `[u8; 32]` by just calling `.into()`, since these two types are equivalent.
+
+## 7. Redundant Storage (Track Owned Kitties)
+As a rule, you only want to store data in your blockchain which is necessary for consensus. We should evaluate what queries we will need to perform on the stored data and then decide that we may indeed need to have redundant storage in order to make the queries efficient.
+
+### 7.1 Iteration
+In general iteration should be avoided where possible, but if unavoidable it is critical that iteration be bounded in size. We literally cannot allow code on our blockchain which would do unbounded iteration, else that would stall our blockchain, which needs to produce a new block on a regular time interval.
+
+* **Iteration in Maps**: When you iterate over a map, you need to make 2 considerations: That the map may not have a bounded upper limit and That each access to the map is very expensive to the blockchain (each is a unique read to the merkle trie). If you want to do iteration, probably you do **NOT** want to use a map.
+* **Iteration in Vectors**: When you iterate over a vector, the only real consideration you need to have is how large that vector is. Accessing large files from the database is going to be slower than accessing small files. Once you access the vector, iterating over it and manipulating it is relatively **cheap** compared to any kind of storage map (**but not zero**, complexity about vector access still applies). If you want to do iteration, you definitely would prefer to use a vector.
+
+### 7.2 Storage Optimisations
+For vectors, it is not necessary to read data from the storage, append to it and write it back to storage. Instead we can use `FRAME's` Storage Abstractions and simply append to the vector like below:
+
+```rust
+    // Naive way
+    // Get/read the vector from storage
+    let mut owned_kitties: Vec<[u8; 32]> = KittiesOwned::<T>::get(owner);
+    // Append to the vector
+    owned_kitties.append(new_kitty);
+    // Write the vector back to storage
+    KittiesOwned::<T>::insert(owner, owned_kitties);
+
+    // Better way
+    KittiesOwned::<T>::append(owner, new_kitty);
+```
+
+### 7.3 Bounded Vectors
+* The `BoundedVec` type is a zero-overhead abstraction over the `Vec` type allowing us to control the maximum number of item in the vector. To create a new BoundedVec with a maximum of 100 u8s, you can do the following:
+
+```rust
+    let my_bounded_vec = BoundedVec::<u8, ConstU32<100>>::new();
+```
+
+* The syntax here is very similar to creating a `Vec`, however we include a second generic parameter which tells us the bound. The easiest way to set this bound is using the `ConstU32<T>` type.
+* The `BoundedVec` type has almost all the same APIs as a `Vec`. The main difference is the fact that a `BoundedVec` cannot always accept a new item. So rather than having `push`, `append`, `extend`, `insert`, and so on, you have `try_push`, `try_append`, `try_extend`, `try_insert`, etc. So converting the logic of a `Vec` to a `BoundedVec` can be as easy as:
+
+```rust
+    // Append to a normal vec.
+    vec.append(item);
+    // Try append to a bounded vec, handling the error.
+    bounded_vec.try_append(item).map_err(|_| Error::<T>::TooManyOwned)?;
+```
+
+* Just like for `Vec`, our `BoundedVec` also has an optimized `try_append` API for trying to append a new item to the `BoundedVec` without having to read the whole vector in the runtime:
+
+```rust
+    // Append to a normal vec.
+    KittiesOwned::<T>::append(item);
+    // Try append to a bounded vec, handling the error.
+    KittiesOwned::<T>::try_append(item).map_err(|_| Error::<T>::TooManyOwned)?;
+```
+
