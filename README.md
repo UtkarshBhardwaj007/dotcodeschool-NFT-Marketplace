@@ -460,3 +460,53 @@ impl pallet_kitties::Config for Runtime {
 ```rust
     let total_balance: BalanceOf<T> = balance_1.checked_add(balance_2).ok_or(ArithmeticError::Overflow)?;
 ```
+
+## 10. Buy and Sell Kitties
+To execute a purchase, we need to transfer two things:
+* The token balance from the buyer to the seller.
+* The kitty from the seller to the buyer.
+
+### 10.1 Transfer the Native Balance
+* We already have a function to transfer kitties. To transfer the `NativeBalance`, you can use the `transfer API` which is included in the `fungible::Mutate` trait:
+
+```rust
+    fn transfer(
+        source: &AccountId,
+        dest: &AccountId,
+        amount: Self::Balance,
+        preservation: Preservation
+    ) -> Result<Self::Balance, DispatchError>
+```
+
+* **NOTE**: To access this function, you will need import the trait to bring it in scope. To use functions defined within traits, you need to bring the trait into scope. This is a rust thing.
+* The first 3 parameters here are easy enough to understand. We also have a 4th parameter which is `preservation: Preservation`. It is defined as follows:
+
+```rust
+    /// The mode by which we describe whether an operation should keep an account alive.
+    pub enum Preservation {
+        /// We don't care if the account gets killed by this operation.
+        Expendable,
+        /// The account may not be killed, but we don't care if the balance gets dusted.
+        Protect,
+        /// The account may not be killed and our provider reference must remain (in the context of
+        /// tokens, this means that the account may not be dusted).
+        Preserve,
+    }
+```
+
+### 10.2 Propagate Up Errors
+* Both transfer functions need to succeed for the sale to complete successfully. If either one of them would fail, the whole purchase should fail.
+* Thankfully, both of our transfer functions return a result, and to handle things correctly here, we just need to propagate up those errors. For that, we simply include `?` at the end of the function.
+* If at any point our extrinsic or the logic inside the extrinsic returns an error, the whole extrinsic will fail and all changes to storage will be undone. This is exactly the same behavior you would expect from a smart contract, and keeps our state transition function functioning smoothly.
+
+## 11. Associated Types v/s Trait Methods
+
+### 11.1 For trait methods (like transfer):
+* When a trait method is called, Rust can automatically figure out the trait bounds and associated types through type inference.
+* That's why `T::NativeBalance::transfer(...)` works - Rust knows that `T::NativeBalance` implements `Mutate` from the `Config` trait bounds, and can infer the correct `AccountId` type.
+
+### 11.2 For associated types (like Balance):
+* When accessing an associated type, Rust needs explicit information about which trait provides that associated type.
+* `Balance` is an associated type that comes from the `Inspect` trait, not directly from `NativeBalance`.
+* Just writing `T::NativeBalance::Balance` doesn't tell Rust which trait's `Balance` we want to use.
+That's why we need the fully qualified syntax for the type alias.
