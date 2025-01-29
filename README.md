@@ -425,3 +425,38 @@ impl pallet_kitties::Config for Runtime {
 ```
 
 * Here, pallet_balances implements Inspect and Mutate, so it satisfies the trait bounds.
+
+## 9. Balance Type
+* The Balance type is ultimately configured inside `pallet_balances`, and we don't have direct access to that pallet because we used **loose coupling**.
+* The way we can access the Balance type is through the `Inspect` trait of the `NativeBalance` associated type. Accessing it kind of funny, which is why we commonly introduce a `BalanceOf<T>` alias type like so:
+
+```rust
+    // Allows easy access our Pallet's `Balance` type. Comes from `Fungible` interface.
+    pub type BalanceOf<T> =
+        <<T as Config>::NativeBalance as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
+```
+
+* `BalanceOf<T>` type is generic, which means we **CANNOT** write the following:
+
+```rust
+    // This code doesn't work
+    fn add_one(input: BalanceOf<T>) -> BalanceOf<T> {
+        input + 1u128
+    }
+```
+
+* `BalanceOf<T>` does have traits that we can use to interact with it. The key one being `AtLeast32BitUnsigned`. This means our `BalanceOf<T>` must be an `unsigned integer`, and must be at least `u32`. So it could be `u32`, `u64`, `u128`, or even bigger. This also means we would be able to write the following:
+
+```rust
+    // This code does work
+    fn add_one(input: BalanceOf<T>) -> BalanceOf<T> {
+        input + 1u32.into()
+    }
+```
+
+* We can convert any `u32` into the `BalanceOf<T>` type because we know at a minimum `BalanceOf<T>` is `AtLeast32BitUnsigned`.
+* BalanceOf<T> types will act just like two normal numbers of the same type. You can add them, divide them, etc. and even better, do safe math operations on all of them:
+
+```rust
+    let total_balance: BalanceOf<T> = balance_1.checked_add(balance_2).ok_or(ArithmeticError::Overflow)?;
+```

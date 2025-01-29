@@ -5,12 +5,13 @@ mod impls;
 use frame::prelude::*;
 use frame::traits::fungible::Inspect;
 use frame::traits::fungible::Mutate;
-
 pub use pallet::*;
 
 #[frame::pallet(dev_mode)]
 pub mod pallet {
-	use super::*;
+	use frame::runtime::types_common::AccountId;
+
+use super::*;
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(core::marker::PhantomData<T>);
@@ -18,8 +19,12 @@ pub mod pallet {
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
+		/// The Fungible handler for the kitties pallet.
 		type NativeBalance: Inspect<Self::AccountId> + Mutate<Self::AccountId>;
 	}
+
+	type BalanceOf<T> = <<T as Config>::NativeBalance as Inspect<<T as frame_system::Config>::AccountId>>::Balance;
 
 	#[derive(Encode, Decode, TypeInfo, MaxEncodedLen)]
 	#[scale_info(skip_type_params(T))]
@@ -27,6 +32,7 @@ pub mod pallet {
 		// Using 32 bytes to represent a kitty DNA
 		pub dna: [u8; 32],
 		pub owner: T::AccountId,
+		pub price: Option<BalanceOf<T>>,
 	}
 
 	#[pallet::storage]
