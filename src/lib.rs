@@ -18,7 +18,7 @@ pub mod pallet {
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
-		type NativeBalance: Inspect<AccountId = Self::AccountId> + Mutate<AccountId = Self::AccountId>;
+		type NativeBalance: Inspect<Self::AccountId> + Mutate<Self::AccountId>;
 	}
 
 	#[derive(Encode, Decode, TypeInfo, MaxEncodedLen)]
