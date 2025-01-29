@@ -329,3 +329,99 @@ For vectors, it is not necessary to read data from the storage, append to it and
     KittiesOwned::<T>::try_append(item).map_err(|_| Error::<T>::TooManyOwned)?;
 ```
 
+## 8. Pallet Coupling
+### 8.1 What is Pallet Coupling?
+Pallet coupling refers to how one Substrate pallet interacts with another. There are two patterns:
+* **Tight Coupling**: Direct dependency on a specific pallet.
+* **Loose Coupling**: Dependency on a trait interface, not a specific pallet.
+
+### 8.2 Tight Coupling
+#### 8.2.1 How It Works
+* **Supertrait Inheritance**: Your pallet’s `Config` trait inherits from another pallet’s `Config` trait Example:
+
+```rust
+    #[pallet::config]
+    pub trait Config: frame_system::Config + pallet_balances::Config { ... }
+```
+
+* Here, your pallet is tightly coupled to both `frame_system` and `pallet_balances.`
+
+#### 8.2.2 Key Characteristics
+* Direct Access: You can use the other pallet’s:
+  * **Types**: T::AccountId (from frame_system).
+  * **Functions**: frame_system::Pallet::<T>::block_number().
+  * **Storage**: Directly read/write to the other pallet’s storage.
+* Example using pallet_balances:
+
+```rust
+    let total_issuance = pallet_balances::Pallet::<T>::total_issuance();
+```
+
+#### 8.2.3 Pros & Cons
+* ✅ Pros:
+  * Simple to implement.
+  * Full access to the other pallet’s APIs.
+* ❌ Cons:
+  * Rigid dependency: Users of your pallet must use the exact version of the coupled pallet.
+  * Not modular: Hard to swap out dependencies.
+
+#### 8.2.4 Use Case
+* Required for frame_system (all pallets are tightly coupled to it).
+* Use when you need deep integration with a specific pallet.
+
+### 8.3 Loose Coupling
+#### 8.3.1 How It Works
+* **Trait-Based Interface**: Define an associated type in your pallet’s Config that requires specific traits. Example:
+
+```rust
+    #[pallet::config]
+    pub trait Config: frame_system::Config {
+        type NativeBalance: Inspect<Self::AccountId> + Mutate<Self::AccountId>;
+    }
+```
+
+* Here, `NativeBalance` must implement `fungible::Inspect` and `fungible::Mutate` traits.
+
+#### 8.3.2 Key Characteristics
+* **Trait-Bound Access**: Use the other pallet’s functionality through traits:
+
+```rust
+    let balance = T::NativeBalance::total_balance(alice);
+    T::NativeBalance::mint_into(alice, amount)?;
+```
+
+* **No Direct Dependency**: The runtime can assign any pallet that implements the required traits.
+
+#### 8.3.3 Pros & Cons
+* ✅ Pros:
+  * Flexible: Users can swap out the underlying pallet (e.g., use pallet_assets instead of pallet_balances).
+  * Decouples versioning: No strict dependency on a specific pallet version.
+* ❌ Cons:
+  * Limited to the functionality defined by the traits.
+
+#### 8.3.4 Use Case
+* Use when you want your pallet to work with multiple implementations (e.g., different token standards).
+* Common for fungible tokens, NFTs, or other generic functionalities.
+
+### 8.4 Runtime Configuration Example
+* **Tight Coupling Setup**
+
+```rust
+// In your runtime (`runtime/src/lib.rs`):
+impl pallet_kitties::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    // Tight coupling to `pallet_balances` is implicit via the `Config` trait.
+}
+```
+
+* **Loose Coupling Setup**
+
+```rust
+// In your runtime (`runtime/src/lib.rs`):
+impl pallet_kitties::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type NativeBalance = pallet_balances::Pallet<Runtime>; // Assign `pallet_balances`
+}
+```
+
+* Here, pallet_balances implements Inspect and Mutate, so it satisfies the trait bounds.

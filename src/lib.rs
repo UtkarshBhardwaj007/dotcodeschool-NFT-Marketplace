@@ -3,6 +3,9 @@
 mod impls;
 
 use frame::prelude::*;
+use frame::traits::fungible::Inspect;
+use frame::traits::fungible::Mutate;
+
 pub use pallet::*;
 
 #[frame::pallet(dev_mode)]
@@ -15,12 +18,13 @@ pub mod pallet {
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+		type NativeBalance: Inspect<AccountId = Self::AccountId> + Mutate<AccountId = Self::AccountId>;
 	}
 
 	#[derive(Encode, Decode, TypeInfo, MaxEncodedLen)]
 	#[scale_info(skip_type_params(T))]
 	pub struct Kitty<T: Config> {
-		
+		// Using 32 bytes to represent a kitty DNA
 		pub dna: [u8; 32],
 		pub owner: T::AccountId,
 	}
@@ -31,7 +35,7 @@ pub mod pallet {
 	#[pallet::storage]
 	pub(super) type Kitties<T: Config> = StorageMap<Key = [u8; 32], Value = Kitty<T>>;
 
-	
+	/// Track the kitties owned by each account.
 	#[pallet::storage]
 	pub(super) type KittiesOwned<T: Config> = StorageMap<
 		Key = T::AccountId,
@@ -43,6 +47,7 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		Created { owner: T::AccountId },
+		Transferred { from: T::AccountId, to: T::AccountId, kitty_id: [u8; 32] },
 	}
 
 	#[pallet::error]
@@ -50,6 +55,9 @@ pub mod pallet {
 		TooManyKitties,
 		DuplicateKitty,
 		TooManyOwned,
+		TransferToSelf,
+		NoKitty,
+		NotOwner,
 	}
 
 	#[pallet::call]
@@ -58,6 +66,16 @@ pub mod pallet {
 			let who = ensure_signed(origin)?;
 			let dna = Self::gen_dna();
 			Self::mint(who, dna)?;
+			Ok(())
+		}
+
+		pub fn transfer(
+			origin: OriginFor<T>,
+			to: T::AccountId,
+			kitty_id: [u8; 32],
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			Self::do_transfer(who, to, kitty_id)?;
 			Ok(())
 		}
 	}
